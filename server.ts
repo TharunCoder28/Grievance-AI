@@ -53,6 +53,15 @@ const sendEmail = async (to: string, subject: string, html: string) => {
 };
 
 // --- TYPES ---
+interface AuditLog {
+  id: string;
+  grievanceId: string;
+  adminId: string;
+  action: string;
+  details: string;
+  timestamp: string;
+}
+
 interface Grievance {
   id: string;
   citizenName: string;
@@ -68,6 +77,11 @@ interface Grievance {
   explanation?: string;
   confidence?: string;
   keywords?: string[];
+  media?: { type: "photo" | "video"; url: string; name?: string }[];
+  aiFeedback?: {
+    accurate: boolean | null;
+    comment: string;
+  };
 }
 
 // In-memory store for grievances (Prototype only)
@@ -151,6 +165,17 @@ let grievances: Grievance[] = [
     explanation: "Detected keywords: garbage, smell → Low Priority",
     confidence: "90%",
     keywords: ["Garbage", "smells bad"]
+  }
+];
+
+let auditLogs: AuditLog[] = [
+  {
+    id: "LOG-1",
+    grievanceId: "GRV-1001",
+    adminId: "ADMIN-01",
+    action: "Status Update",
+    details: "Changed status from Pending to In Progress",
+    timestamp: new Date(Date.now() - 3600000).toISOString()
   }
 ];
 
@@ -282,6 +307,35 @@ app.get("/api/grievances", checkRole(["Admin", "Citizen"]), (req, res) => {
 });
 
 // Everyone: Predict category/priority (Citizen tool)
+app.post("/api/chat", async (req, res) => {
+  const { message, history } = req.body;
+  if (!message) return res.status(400).json({ error: "message is required" });
+
+  try {
+    const chat = ai.chats.create({
+      model: "gemini-3-flash-preview",
+      config: {
+        systemInstruction: `
+          You are an AI assistant for the Police Grievance AI Platform. 
+          Your goal is to help citizens report grievances, check status, and understand police procedures.
+          Be professional, empathetic, and clear. 
+          If asked about emergencies, always tell them to call 100 immediately.
+          Handle both English and Tamil if the user uses them.
+          Keep responses relatively concise.
+        `,
+      },
+      history: history || [],
+    });
+
+    const response = await chat.sendMessage({ message });
+    
+    res.json({ text: response.text });
+  } catch (error) {
+    console.error("Chat Error:", error);
+    res.status(500).json({ error: "Failed to connect to AI assistant" });
+  }
+});
+
 app.post("/api/predict", async (req, res) => {
   const { complaint_text } = req.body;
   if (!complaint_text) return res.status(400).json({ error: "complaint_text is required" });
@@ -335,7 +389,20 @@ app.post("/api/predict", async (req, res) => {
 });
 
 app.post("/api/grievances", checkRole(["Citizen"]), async (req, res) => {
-  const { text, citizenName, citizenMobile, location, geoData, category, priority, summary, explanation, confidence } = req.body;
+  const { 
+    text, 
+    citizenName, 
+    citizenMobile, 
+    location, 
+    geoData, 
+    category, 
+    priority, 
+    summary, 
+    explanation, 
+    confidence,
+    media,
+    aiFeedback
+  } = req.body;
 
   if (!citizenMobile) return res.status(400).json({ error: "citizenMobile is required" });
 
@@ -352,7 +419,9 @@ app.post("/api/grievances", checkRole(["Citizen"]), async (req, res) => {
     explanation,
     confidence,
     status: "Pending",
-    timestamp: new Date().toISOString()
+    timestamp: new Date().toISOString(),
+    media: media || [],
+    aiFeedback
   };
 
   grievances.unshift(newGrievance);
@@ -372,6 +441,7 @@ app.post("/api/grievances", checkRole(["Citizen"]), async (req, res) => {
           <p><strong>Location:</strong> ${newGrievance.location}</p>
           <p><strong>Summary:</strong> ${newGrievance.summary}</p>
           <p><strong>AI Explanation:</strong> ${newGrievance.explanation}</p>
+          <p><strong>Media Attached:</strong> ${newGrievance.media && newGrievance.media.length > 0 ? `${newGrievance.media.length} items (Check Dashboard)` : "None"}</p>
           <hr/>
           <p>Please log in to the Admin Dashboard to take action.</p>
         `
@@ -382,35 +452,131 @@ app.post("/api/grievances", checkRole(["Citizen"]), async (req, res) => {
   res.status(201).json(newGrievance);
 });
 
-// Admin only: Update grievance status
+// Admin only: Update grievance status or category with audit logging
 app.patch("/api/grievances/:id", checkRole(["Admin"]), (req, res) => {
   const { id } = req.params;
-  const { status } = req.body;
+  const { status, category } = req.body;
   const index = grievances.findIndex(g => g.id === id);
+  
   if (index !== -1) {
-    const oldStatus = grievances[index].status;
-    grievances[index].status = status;
-    
-    const adminEmail = process.env.ADMIN_EMAIL;
-    if (adminEmail && oldStatus !== status) {
-      sendEmail(
-        adminEmail,
-        `✅ STATUS UPDATED: ${id}`,
-        `
-          <h2>Grievance Status Update</h2>
-          <p><strong>ID:</strong> ${id}</p>
-          <p><strong>New Status:</strong> ${status}</p>
-          <p><strong>Citizen:</strong> ${grievances[index].citizenName}</p>
-          <hr/>
-          <p>The grievance status has been successfully updated in the system.</p>
-        `
-      );
+    const grievance = grievances[index];
+    const changes: string[] = [];
+
+    if (status && grievance.status !== status) {
+      changes.push(`status from ${grievance.status} to ${status}`);
+      grievance.status = status;
     }
 
-    res.json(grievances[index]);
+    if (category && grievance.category !== category) {
+      changes.push(`category from ${grievance.category} to ${category}`);
+      grievance.category = category;
+    }
+
+    if (changes.length > 0) {
+      const logEntry: AuditLog = {
+        id: `LOG-${auditLogs.length + 1}`,
+        grievanceId: id,
+        adminId: "ADMIN-SYS", // In a real app, this would be the actual logged-in admin's ID
+        action: "Administrative Update",
+        details: `Updated ${changes.join(" and ")}`,
+        timestamp: new Date().toISOString()
+      };
+      auditLogs.unshift(logEntry);
+
+      // Trigger email for status updates
+      if (status) {
+        const adminEmail = process.env.ADMIN_EMAIL;
+        if (adminEmail) {
+          sendEmail(
+            adminEmail,
+            `✅ UPDATE RECORDED: ${id}`,
+            `
+              <h2>Grievance Update Logged</h2>
+              <p><strong>ID:</strong> ${id}</p>
+              <p><strong>Action:</strong> ${logEntry.details}</p>
+              <p><strong>Admin:</strong> ${logEntry.adminId}</p>
+              <hr/>
+              <p>The administrative action has been recorded in the audit trail.</p>
+            `
+          );
+        }
+      }
+    }
+
+    res.json(grievance);
   } else {
     res.status(404).json({ error: "Grievance not found" });
   }
+});
+
+// Admin only: Bulk update grievances
+app.post("/api/admin/grievances/bulk-update", checkRole(["Admin"]), (req, res) => {
+  const { ids, updates } = req.body;
+  if (!ids || !Array.isArray(ids) || ids.length === 0) {
+    return res.status(400).json({ error: "ids array is required" });
+  }
+
+  const updatedGrievances: Grievance[] = [];
+  const logs: AuditLog[] = [];
+
+  ids.forEach(id => {
+    const index = grievances.findIndex(g => g.id === id);
+    if (index !== -1) {
+      const grievance = grievances[index];
+      const changes: string[] = [];
+
+      if (updates.status && grievance.status !== updates.status) {
+        changes.push(`status from ${grievance.status} to ${updates.status}`);
+        grievance.status = updates.status;
+      }
+
+      if (updates.category && grievance.category !== updates.category) {
+        changes.push(`category from ${grievance.category} to ${updates.category}`);
+        grievance.category = updates.category;
+      }
+
+      if (changes.length > 0) {
+        const logEntry: AuditLog = {
+          id: `LOG-${auditLogs.length + logs.length + 1}`,
+          grievanceId: id,
+          adminId: "ADMIN-SYS",
+          action: "Bulk Update",
+          details: `Updated ${changes.join(" and ")} as part of bulk action`,
+          timestamp: new Date().toISOString()
+        };
+        logs.push(logEntry);
+        updatedGrievances.push(grievance);
+      }
+    }
+  });
+
+  if (logs.length > 0) {
+    auditLogs.unshift(...logs);
+    
+    // Send one summary email for bulk updates
+    const adminEmail = process.env.ADMIN_EMAIL;
+    if (adminEmail) {
+      sendEmail(
+        adminEmail,
+        `📦 BULK UPDATE EXECUTED: ${ids.length} items`,
+        `
+          <h2>Bulk Update Performance</h2>
+          <p><strong>Processed:</strong> ${ids.length} grievances</p>
+          <p><strong>Updated:</strong> ${updatedGrievances.length} grievances</p>
+          <p><strong>Action Type:</strong> Admin Bulk Update</p>
+          <hr/>
+          <p>Check the Audit Log for individual change details.</p>
+        `
+      );
+    }
+  }
+
+  res.json({ message: "Bulk update complete", count: updatedGrievances.length });
+});
+
+// Admin only: View Audit Logs
+app.get("/api/admin/audit-logs", checkRole(["Admin"]), (req, res) => {
+  res.json(auditLogs);
 });
 
 // Admin only: View stats

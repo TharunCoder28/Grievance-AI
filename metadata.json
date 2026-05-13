@@ -2,6 +2,10 @@
   "name": "Grievance AI Framework",
   "description": "An AI-Driven Hybrid NLP Framework for Intelligent Multi-Department Grievance Classification, Priority Scoring, and Real-Time E-Governance Workflow Automation.",
   "requestFramePermissions": [
-    "microphone"
+    "microphone",
+    "camera"
+  ],
+  "majorCapabilities": [
+    "MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"
   ]
 }

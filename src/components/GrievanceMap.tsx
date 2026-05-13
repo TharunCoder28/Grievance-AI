@@ -93,8 +93,18 @@ const MapController = ({ center }: { center: [number, number] }) => {
 export const GrievanceMap = ({ grievances, onMarkerClick }: GrievanceMapProps) => {
   const [activeGrievance, setActiveGrievance] = useState<Grievance | null>(null);
   const [mapType, setMapType] = useState<"standard" | "dark">("dark");
+  const [statusFilter, setStatusFilter] = useState<string>("All");
+  const [priorityFilter, setPriorityFilter] = useState<string>("All");
 
   const center: [number, number] = [12.9249, 80.1277]; // Chennai Tambaram area
+
+  const filteredGrievances = useMemo(() => {
+    return grievances.filter(g => {
+      const matchesStatus = statusFilter === "All" || g.status === statusFilter;
+      const matchesPriority = priorityFilter === "All" || g.priority === priorityFilter;
+      return matchesStatus && matchesPriority;
+    });
+  }, [grievances, statusFilter, priorityFilter]);
 
   const stats = useMemo(() => {
     return {
@@ -102,8 +112,9 @@ export const GrievanceMap = ({ grievances, onMarkerClick }: GrievanceMapProps) =
       high: grievances.filter(g => g.priority === "High").length,
       medium: grievances.filter(g => g.priority === "Medium").length,
       low: grievances.filter(g => g.priority === "Low").length,
+      filtered: filteredGrievances.length
     };
-  }, [grievances]);
+  }, [grievances, filteredGrievances]);
 
   return (
     <div className="relative w-full h-[600px] rounded-[2.5rem] overflow-hidden border border-slate-200 dark:border-slate-800 shadow-2xl group">
@@ -114,12 +125,13 @@ export const GrievanceMap = ({ grievances, onMarkerClick }: GrievanceMapProps) =
           <span className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Live Incident Map</span>
         </div>
         
-        <div className="glass-card p-4 rounded-3xl border border-white/10 shadow-xl space-y-3 min-w-[180px]">
+        {/* Statistics Card */}
+        <div className="glass-card p-4 rounded-3xl border border-white/10 shadow-xl space-y-3 min-w-[200px]">
           <div className="flex justify-between items-center">
-            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Total Alerts</span>
-            <span className="text-sm font-black text-white">{stats.total}</span>
+            <span className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">Map View</span>
+            <span className="text-sm font-black text-white">{stats.filtered} / {stats.total}</span>
           </div>
-          <div className="h-1 w-full bg-slate-800 rounded-full overflow-hidden flex">
+          <div className="h-1.5 w-full bg-slate-800 rounded-full overflow-hidden flex">
             <div className="h-full bg-rose-500" style={{ width: `${(stats.high / stats.total) * 100}%` }} />
             <div className="h-full bg-amber-500" style={{ width: `${(stats.medium / stats.total) * 100}%` }} />
             <div className="h-full bg-emerald-500" style={{ width: `${(stats.low / stats.total) * 100}%` }} />
@@ -136,6 +148,53 @@ export const GrievanceMap = ({ grievances, onMarkerClick }: GrievanceMapProps) =
             <div className="text-center">
               <p className="text-[8px] font-bold text-emerald-500 uppercase">Low</p>
               <p className="text-xs font-black text-white">{stats.low}</p>
+            </div>
+          </div>
+        </div>
+
+        {/* Filters Card */}
+        <div className="glass-card p-4 rounded-3xl border border-white/10 shadow-xl space-y-4 min-w-[200px]">
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <Activity className="w-3 h-3" /> Status Filter
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {["All", "Pending", "In Progress", "Resolved"].map((s) => (
+                <button
+                  key={s}
+                  onClick={() => setStatusFilter(s)}
+                  className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tight transition-all border",
+                    statusFilter === s 
+                      ? "bg-indigo-600 text-white border-indigo-600" 
+                      : "bg-white/5 text-slate-400 border-white/10 hover:border-white/30"
+                  )}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div>
+            <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+              <AlertCircle className="w-3 h-3" /> Priority Filter
+            </p>
+            <div className="flex flex-wrap gap-1.5">
+              {["All", "High", "Medium", "Low"].map((p) => (
+                <button
+                  key={p}
+                  onClick={() => setPriorityFilter(p)}
+                  className={cn(
+                    "px-2 py-1 rounded-lg text-[8px] font-black uppercase tracking-tight transition-all border",
+                    priorityFilter === p 
+                      ? "bg-indigo-600 text-white border-indigo-600" 
+                      : "bg-white/5 text-slate-400 border-white/10 hover:border-white/30"
+                  )}
+                >
+                  {p}
+                </button>
+              ))}
             </div>
           </div>
         </div>
@@ -222,7 +281,7 @@ export const GrievanceMap = ({ grievances, onMarkerClick }: GrievanceMapProps) =
           attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a> contributors'
         />
         
-        {grievances.map((g) => (
+        {filteredGrievances.map((g) => (
           <Marker 
             key={g.id} 
             position={[g.geoData.lat, g.geoData.lng]}

@@ -15,7 +15,7 @@
 
 @layer base {
   body {
-    @apply bg-slate-50 text-slate-900 antialiased selection:bg-indigo-100 selection:text-indigo-700 transition-colors duration-300;
+    @apply bg-slate-50 text-slate-800 antialiased selection:bg-indigo-100 selection:text-indigo-700 transition-colors duration-300;
     font-feature-settings: "cv02", "cv03", "cv04", "cv11";
   }
 
@@ -26,7 +26,7 @@
 
 @layer utilities {
   .glass-card {
-    @apply bg-white/80 backdrop-blur-md border border-white shadow-sm;
+    @apply bg-white/90 backdrop-blur-md border border-slate-200/60 shadow-sm;
   }
   
   .dark .glass-card {
@@ -121,16 +121,21 @@
 }
 
 @keyframes cctv-glitch {
-  0% { transform: translate(0); }
-  20% { transform: translate(-2px, 2px); }
-  40% { transform: translate(-2px, -2px); }
-  60% { transform: translate(2px, 2px); }
-  80% { transform: translate(2px, -2px); }
-  100% { transform: translate(0); }
+  0% { transform: translate(0); filter: hue-rotate(0deg) brightness(1); }
+  10% { transform: translate(-4px, 2px) skewX(2deg); filter: hue-rotate(90deg) brightness(1.2); }
+  20% { transform: translate(4px, -2px) skewX(-2deg); filter: hue-rotate(180deg) brightness(0.8); }
+  30% { transform: translate(-2px, 4px) scale(1.05); filter: hue-rotate(270deg) brightness(1.5); }
+  40% { transform: translate(2px, -4px) scale(0.95); filter: hue-rotate(360deg) brightness(1); }
+  50% { transform: translate(-6px, 0px) skewY(1deg); filter: contrast(2); }
+  60% { transform: translate(6px, 0px) skewY(-1deg); filter: contrast(0.5); }
+  70% { transform: translate(0px, 4px) scaleX(1.1); filter: invert(0.1); }
+  80% { transform: translate(0px, -4px) scaleX(0.9); filter: invert(0); }
+  90% { transform: translate(2px, 2px); filter: saturate(2); }
+  100% { transform: translate(0); filter: saturate(1); }
 }
 
 .animate-glitch {
-  animation: cctv-glitch 0.2s infinite;
+  animation: cctv-glitch 0.15s steps(2) infinite;
 }
 
 @keyframes cctv-zoom {
