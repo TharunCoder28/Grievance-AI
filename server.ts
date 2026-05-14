@@ -10,7 +10,8 @@ dotenv.config();
 const app = express();
 const PORT = 3000;
 
-app.use(express.json());
+app.use(express.json({ limit: "50mb" }));
+app.use(express.urlencoded({ limit: "50mb", extended: true }));
 
 // --- EMAIL UTILITY ---
 let transporter: nodemailer.Transporter | null = null;
@@ -25,11 +26,34 @@ const getTransporter = () => {
     transporter = nodemailer.createTransport({
       host: EMAIL_HOST,
       port: parseInt(EMAIL_PORT),
-      secure: parseInt(EMAIL_PORT) === 465,
+      secure: parseInt(EMAIL_PORT) === 465, // Use SSL for 465
       auth: {
         user: EMAIL_USER,
         pass: EMAIL_PASS,
       },
+      debug: false, // Turn off heavy debug logs in prod unless needed
+      logger: false,
+      connectionTimeout: 20000, // Increased timeout
+      greetingTimeout: 20000,
+      socketTimeout: 30000,
+      dnsTimeout: 10000,
+      family: 4,
+      tls: {
+        rejectUnauthorized: false, // Allow self-signed certs (common with relay hosts)
+        minVersion: 'TLSv1.2'
+      },
+      pool: true, // Use pooling for better performance
+      maxConnections: 5,
+      maxMessages: 100
+    } as any);
+
+    // Verify connection on creation
+    transporter.verify((error, success) => {
+      if (error) {
+        console.error("SMTP Connection Verification Failed. Please check your credentials and firewall rules (Port 465/587). Error:", error);
+      } else {
+        console.log("SMTP Server Connection Verified.");
+      }
     });
   }
   return transporter;
@@ -47,12 +71,58 @@ const sendEmail = async (to: string, subject: string, html: string) => {
       html,
     });
     console.log(`Email sent to ${to}: ${subject}`);
-  } catch (error) {
-    console.error("Failed to send email:", error);
+  } catch (error: any) {
+    if (error.code === 'ETIMEDOUT' || error.code === 'ECONNREFUSED' || error.name === 'TimeoutError') {
+      console.error(`Email Error [${error.code || error.name}]: Connection timed out / refused.
+      Possible causes:
+      1. SMTP Port (${process.env.EMAIL_PORT}) is blocked by the network/firewall.
+      2. SMTP Host (${process.env.EMAIL_HOST}) is incorrect or unreachable.
+      3. The SMTP provider requires a specific port (try 465 for SSL or 587 for TLS).
+      Full error:`, error);
+    } else {
+      console.error("Failed to send email:", error);
+    }
   }
 };
 
 // --- TYPES ---
+interface SOSAlert {
+  id: string;
+  citizenName: string;
+  citizenMobile: string;
+  location: string;
+  geoData: { lat: number; lng: number };
+  timestamp: string;
+  status: "Active" | "Responding" | "Resolved";
+  feedback?: {
+    responseTimeRating: number;
+    conductRating: number;
+    comment: string;
+    timestamp: string;
+  };
+}
+
+interface PublicFeedback {
+  id: string;
+  rating: number;
+  comment: string;
+  category: string;
+  timestamp: string;
+}
+
+interface SafetyCompanionSession {
+  id: string;
+  citizenMobile: string;
+  expiry: string;
+  path: { lat: number; lng: number }[];
+}
+
+interface Officer {
+  name: string;
+  badge: string;
+  mobile: string;
+}
+
 interface AuditLog {
   id: string;
   grievanceId: string;
@@ -78,10 +148,12 @@ interface Grievance {
   confidence?: string;
   keywords?: string[];
   media?: { type: "photo" | "video"; url: string; name?: string }[];
+  resolutionMedia?: { type: "photo" | "video"; url: string; name?: string }[];
   aiFeedback?: {
     accurate: boolean | null;
     comment: string;
   };
+  officerInCharge?: Officer;
 }
 
 // In-memory store for grievances (Prototype only)
@@ -168,6 +240,12 @@ let grievances: Grievance[] = [
   }
 ];
 
+let sosAlerts: SOSAlert[] = [];
+let publicFeedback: PublicFeedback[] = [
+  { id: "F-1", rating: 5, comment: "Quick response for the lighting issue!", category: "Electricity", timestamp: new Date(Date.now() - 86400000).toISOString() },
+  { id: "F-2", rating: 4, comment: "Officers were professional.", category: "Crime", timestamp: new Date(Date.now() - 172800000).toISOString() }
+];
+
 let auditLogs: AuditLog[] = [
   {
     id: "LOG-1",
@@ -178,6 +256,69 @@ let auditLogs: AuditLog[] = [
     timestamp: new Date(Date.now() - 3600000).toISOString()
   }
 ];
+
+let safetySessions: SafetyCompanionSession[] = [];
+const officers: Officer[] = [
+  { name: "Inspector Ramesh", badge: "TN-4012", mobile: "+91 94440 XXXXX" },
+  { name: "SI Meenakshi", badge: "TN-5088", mobile: "+91 94451 XXXXX" },
+  { name: "Inspector Sathya", badge: "TN-3321", mobile: "+91 94442 XXXXX" }
+];
+
+interface Patrol {
+  id: string;
+  location: { lat: number; lng: number };
+  type: "Bike" | "Car" | "Van";
+  status: "Patrolling" | "Responding" | "Stationary";
+  speed: number;
+  heading: number;
+  lastUpdate: string;
+  history: { lat: number; lng: number }[];
+}
+
+const patrols: Patrol[] = [
+  { id: "P-1", location: { lat: 12.9249, lng: 80.1277 }, type: "Bike", status: "Patrolling", speed: 45, heading: 90, lastUpdate: new Date().toISOString(), history: [] },
+  { id: "P-2", location: { lat: 13.0418, lng: 80.2341 }, type: "Car", status: "Responding", speed: 70, heading: 180, lastUpdate: new Date().toISOString(), history: [] },
+  { id: "P-3", location: { lat: 13.0850, lng: 80.2101 }, type: "Car", status: "Patrolling", speed: 30, heading: 270, lastUpdate: new Date().toISOString(), history: [] },
+  { id: "P-4", location: { lat: 12.9791, lng: 80.2185 }, type: "Van", status: "Stationary", speed: 0, heading: 0, lastUpdate: new Date().toISOString(), history: [] },
+];
+
+// Logic to move patrols
+setInterval(() => {
+  patrols.forEach(p => {
+    if (p.status === "Stationary") return;
+    
+    // Track history (keep last 10 points)
+    p.history.push({ ...p.location });
+    if (p.history.length > 10) p.history.shift();
+
+    // Convert speed from km/h to degrees per interval (roughly)
+    // 1 degree is roughly 111km. 
+    // If interval is 3s, speed 60km/h = 1km/min = 1/20 km per 3s = 0.05km
+    // 0.05 / 111 ~= 0.00045 degrees
+    const moveAmount = (p.speed / 3600) * 3 * (1/111); // speed in km/h -> km/s -> km/3s -> degrees
+    
+    const latMove = Math.cos(p.heading * Math.PI / 180) * moveAmount;
+    const lngMove = Math.sin(p.heading * Math.PI / 180) * moveAmount;
+    
+    p.location.lat += latMove;
+    p.location.lng += lngMove;
+    p.lastUpdate = new Date().toISOString();
+
+    // Randomly change heading slightly
+    if (Math.random() > 0.8) {
+      p.heading = (p.heading + (Math.random() * 20 - 10)) % 360;
+    }
+
+    // Boundary check (keep them in Chennai roughly)
+    if (p.location.lat < 12.8 || p.location.lat > 13.2) p.heading = (p.heading + 180) % 360;
+    if (p.location.lng < 80.0 || p.location.lng > 80.4) p.heading = (p.heading + 180) % 360;
+  });
+}, 3000);
+
+grievances = grievances.map((g, i) => ({
+  ...g,
+  officerInCharge: officers[i % officers.length]
+}));
 
 // Simple OTP Store
 const otps: { [mobile: string]: string } = {};
@@ -455,7 +596,7 @@ app.post("/api/grievances", checkRole(["Citizen"]), async (req, res) => {
 // Admin only: Update grievance status or category with audit logging
 app.patch("/api/grievances/:id", checkRole(["Admin"]), (req, res) => {
   const { id } = req.params;
-  const { status, category } = req.body;
+  const { status, category, resolutionMedia } = req.body;
   const index = grievances.findIndex(g => g.id === id);
   
   if (index !== -1) {
@@ -470,6 +611,11 @@ app.patch("/api/grievances/:id", checkRole(["Admin"]), (req, res) => {
     if (category && grievance.category !== category) {
       changes.push(`category from ${grievance.category} to ${category}`);
       grievance.category = category;
+    }
+
+    if (resolutionMedia) {
+      changes.push(`resolution evidence added`);
+      grievance.resolutionMedia = resolutionMedia;
     }
 
     if (changes.length > 0) {
@@ -594,6 +740,177 @@ app.get("/api/stats", checkRole(["Admin"]), (req, res) => {
     }, {})
   };
   res.json(stats);
+});
+
+// Transparency & Women Safety Features
+
+app.get("/api/patrols", (req, res) => {
+  res.json(patrols);
+});
+
+app.post("/api/patrols/:id/ai-summary", checkRole(["Admin"]), async (req, res) => {
+  const { id } = req.params;
+  const patrol = patrols.find(p => p.id === id);
+  if (!patrol) return res.status(404).json({ error: "Patrol not found" });
+
+  try {
+    const prompt = `
+      You are an AI Dispatcher for a Smart City Police Command Center.
+      Generate a brief (max 20 words), professional, and human-readable status summary for this police patrol unit.
+      
+      Unit ID: ${patrol.id}
+      Type: ${patrol.type}
+      Current Status: ${patrol.status}
+      Speed: ${patrol.speed} km/h
+      Heading: ${patrol.heading} degrees
+      Recent Movement (last 10 points): ${JSON.stringify(patrol.history)}
+      
+      Consider how the speed and heading combined with history suggest their activity (e.g., cruising, rapid response, stationary oversight).
+      Be concise. Formulate as a real-time field report.
+    `;
+
+    const result = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: prompt,
+    });
+
+    res.json({ id: patrol.id, summary: result.text.trim() });
+  } catch (error) {
+    console.error("Gemini patrol summary failed:", error);
+    res.status(500).json({ error: "Failed to generate AI summary" });
+  }
+});
+
+app.post("/api/safety-companion/start", checkRole(["Citizen"]), (req, res) => {
+  const { mobile, durationMinutes } = req.body;
+  const session: SafetyCompanionSession = {
+    id: `SC-${Date.now()}`,
+    citizenMobile: mobile || "Anonymous",
+    expiry: new Date(Date.now() + (durationMinutes || 30) * 60000).toISOString(),
+    path: []
+  };
+  safetySessions.push(session);
+  res.json(session);
+});
+
+// Public Transparency Metrics (Publicly accessible)
+app.get("/api/public/transparency", (req, res) => {
+  const total = grievances.length;
+  const resolved = grievances.filter(g => g.status === "Resolved").length;
+  const resolutionRate = total > 0 ? (resolved / total) * 100 : 0;
+  
+  const trustScore = 75 + (resolutionRate / 4); // Simulated trust score logic
+  
+  res.json({
+    metrics: {
+      resolutionRate: resolutionRate.toFixed(1),
+      avgResponseTime: "4.2 Hours",
+      trustScore: trustScore.toFixed(0),
+      citizenSatisfaction: "8.4/10",
+      activePatrols: 142
+    },
+    topPerformingAreas: [
+      { area: "Anna Nagar", score: 96 },
+      { area: "Adyar", score: 92 },
+      { area: "Velachery", score: 88 }
+    ],
+    recentFeedback: publicFeedback.slice(0, 3)
+  });
+});
+
+// Women's SOS Alert
+app.post("/api/sos", (req, res) => {
+  const { citizenMobile, citizenName, location, geoData } = req.body;
+  
+  const newAlert: SOSAlert = {
+    id: `SOS-${Date.now()}`,
+    citizenMobile,
+    citizenName: citizenName || "Woman in Distress",
+    location: location || "GPS Location",
+    geoData,
+    timestamp: new Date().toISOString(),
+    status: "Active"
+  };
+  
+  sosAlerts.unshift(newAlert);
+  
+  // High Visibility Logic for Admin
+  const adminEmail = process.env.ADMIN_EMAIL;
+  if (adminEmail) {
+    sendEmail(
+      adminEmail,
+      `🚨 RED ALERT: SOS SIGNAL FROM ${newAlert.citizenName}`,
+      `<h2>EMERGENCY: Women's Safety SOS</h2>
+       <p><strong>Caller:</strong> ${newAlert.citizenName} (${newAlert.citizenMobile})</p>
+       <p><strong>Location:</strong> ${newAlert.location}</p>
+       <p><strong>GPS:</strong> ${geoData.lat}, ${geoData.lng}</p>
+       <hr/>
+       <p>IMMEDIATE ACTION REQUIRED. Nearest patrol dispatched.</p>`
+    );
+  }
+  
+  res.json({ message: "SOS Received. Assistance is on the way.", alert: newAlert });
+});
+
+// Admin: Get SOS Alerts
+app.get("/api/admin/sos", checkRole(["Admin"]), (req, res) => {
+  res.json(sosAlerts);
+});
+
+// Update SOS Status
+app.patch("/api/admin/sos/:id", checkRole(["Admin"]), (req, res) => {
+  const { id } = req.params;
+  const { status } = req.body;
+  const alert = sosAlerts.find(a => a.id === id);
+  if (alert) {
+    alert.status = status;
+    res.json(alert);
+  } else {
+    res.status(404).json({ error: "SOS Alert not found" });
+  }
+});
+
+// Citizen: Get active SOS status
+app.get("/api/sos/status/:mobile", checkRole(["Citizen"]), (req, res) => {
+  const { mobile } = req.params;
+  // include recently resolved alerts for feedback
+  const alerts = sosAlerts.filter(a => 
+    a.citizenMobile === mobile && 
+    (a.status !== "Resolved" || (a.status === "Resolved" && !a.feedback))
+  );
+  res.json({ activeAlert: alerts[0] || null });
+});
+
+// Citizen: Submit SOS Feedback
+app.post("/api/sos/feedback", checkRole(["Citizen"]), (req, res) => {
+  const { alertId, responseTimeRating, conductRating, comment } = req.body;
+  const alert = sosAlerts.find(a => a.id === alertId);
+  
+  if (alert && alert.status === "Resolved") {
+    alert.feedback = {
+      responseTimeRating,
+      conductRating,
+      comment,
+      timestamp: new Date().toISOString()
+    };
+    res.json({ message: "Feedback submitted", alert });
+  } else {
+    res.status(404).json({ error: "Resolved SOS alert not found" });
+  }
+});
+
+// Citizen Feedback
+app.post("/api/feedback", checkRole(["Citizen"]), (req, res) => {
+  const { rating, comment, category } = req.body;
+  const feedback: PublicFeedback = {
+    id: `F-${publicFeedback.length + 1}`,
+    rating,
+    comment,
+    category,
+    timestamp: new Date().toISOString()
+  };
+  publicFeedback.unshift(feedback);
+  res.json(feedback);
 });
 
 // Vite Integration

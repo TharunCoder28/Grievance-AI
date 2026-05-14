@@ -1,5 +1,5 @@
-import React, { useEffect, useState, useMemo } from "react";
-import { MapContainer, TileLayer, Marker, Popup, useMap } from "react-leaflet";
+import React, { useEffect, useState, useMemo, useRef } from "react";
+import { MapContainer, TileLayer, Marker, Popup, Polyline, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
 import { motion, AnimatePresence } from "motion/react";
@@ -43,22 +43,26 @@ const HighlightText = ({ text, keywords }: { text: string; keywords?: string[] }
 
 // Fix for default marker icons in Leaflet + React
 // Using custom SVG markers instead for better control and reliability
-const createCustomIcon = (priority: string, category: string) => {
+const createCustomIcon = (priority: string, category: string, status: string) => {
   const color = priority === "High" ? "#e11d48" : priority === "Medium" ? "#f59e0b" : "#10b981";
+  const icon = priority === "High" ? "!" : priority === "Medium" ? "?" : "✓";
+  const isResolved = status === "Resolved";
   
   return L.divIcon({
     className: "custom-marker",
     html: `
       <div class="relative flex items-center justify-center">
-        <div class="absolute w-8 h-8 rounded-full bg-white/20 animate-ping" style="background-color: ${color}44"></div>
-        <div class="relative w-6 h-6 rounded-full bg-white shadow-xl border-2 flex items-center justify-center" style="border-color: ${color}">
-          <div class="w-2 h-2 rounded-full" style="background-color: ${color}"></div>
+        ${!isResolved && priority === "High" ? `<div class="absolute w-12 h-12 rounded-full bg-rose-500/20 animate-ping"></div>` : ""}
+        ${!isResolved && priority === "Medium" ? `<div class="absolute w-10 h-10 rounded-full bg-amber-500/10 animate-pulse"></div>` : ""}
+        <div class="relative w-9 h-9 rounded-full bg-white shadow-xl border-[3px] flex items-center justify-center font-black text-[15px] transition-all ${isResolved ? 'grayscale opacity-60' : ''}" 
+             style="border-color: ${isResolved ? '#94a3b8' : color}; color: ${isResolved ? '#94a3b8' : color}; box-shadow: 0 0 15px ${isResolved ? 'rgba(0,0,0,0.1)' : color + '44'}">
+          ${isResolved ? '✓' : icon}
         </div>
       </div>
     `,
-    iconSize: [24, 24],
-    iconAnchor: [12, 12],
-    popupAnchor: [0, -12],
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+    popupAnchor: [0, -18],
   });
 };
 
@@ -72,31 +76,91 @@ interface Grievance {
   text: string;
   timestamp: string;
   keywords?: string[];
+  officerInCharge?: {
+    name: string;
+    badge: string;
+    mobile: string;
+  };
+}
+
+interface Patrol {
+  id: string;
+  location: { lat: number; lng: number };
+  type: "Bike" | "Car" | "Van";
+  status: "Patrolling" | "Responding" | "Stationary";
+  speed: number;
+  heading: number;
+  lastUpdate: string;
+  history: { lat: number; lng: number }[];
 }
 
 interface GrievanceMapProps {
   grievances: Grievance[];
+  patrols?: Patrol[];
   onMarkerClick?: (grievance: Grievance) => void;
+  selectedId?: string;
 }
 
 // Component to handle map view updates (e.g., flying to a point)
-const MapController = ({ center }: { center: [number, number] }) => {
+const MapController = ({ center }: { center: [number, number] | null }) => {
   const map = useMap();
+  const lastCenter = useRef<string>("");
+
   useEffect(() => {
     if (center) {
-      map.flyTo(center, 14, { duration: 1.5 });
+      const centerStr = `${center[0]},${center[1]}`;
+      if (lastCenter.current !== centerStr) {
+        lastCenter.current = centerStr;
+        map.flyTo(center, 16, { 
+          duration: 1.5,
+          easeLinearity: 0.25
+        });
+      }
     }
   }, [center, map]);
   return null;
 };
 
-export const GrievanceMap = ({ grievances, onMarkerClick }: GrievanceMapProps) => {
+const createPatrolIcon = (type: string, status: string, heading: number) => {
+  const isResponding = status === "Responding";
+  const iconColor = isResponding ? "#e11d48" : "#3b82f6";
+  
+  return L.divIcon({
+    className: "patrol-marker",
+    html: `
+      <div class="relative flex items-center justify-center">
+        ${isResponding ? `<div class="absolute w-12 h-12 rounded-full bg-rose-500/20 animate-ping"></div>` : ""}
+        <div class="absolute w-10 h-10 rounded-full ${isResponding ? 'bg-rose-500/10' : 'bg-blue-500/10'} animate-pulse"></div>
+        <div class="relative w-9 h-9 rounded-full ${isResponding ? 'bg-rose-600' : 'bg-blue-600'} shadow-xl border-2 border-white flex items-center justify-center transition-all duration-1000" style="transform: rotate(${heading}deg)">
+          ${type === "Bike" ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><circle cx="5.5" cy="17.5" r="3.5"/><circle cx="18.5" cy="17.5" r="3.5"/><path d="M15 6a1 1 0 1 0 0-2 1 1 0 0 0 0 2zm-3 11.5V14l-3-3 4-3 2 3h2"/></svg>' : 
+            type === "Car" ? '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><path d="M19 17h2c.6 0 1-.4 1-1v-3c0-.9-.7-1.7-1.5-1.9C18.7 10.6 16 10 16 10s-1.3-1.4-2.2-2.3c-.5-.4-1.1-.7-1.8-.7H5c-.6 0-1.1.4-1.4.9l-1.4 2.9A3.7 3.7 0 0 0 2 12v4c0 .6.4 1 1 1h2"/><circle cx="7" cy="17" r="2"/><circle cx="17" cy="17" r="2"/></svg>' :
+            '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="white" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round"><rect width="18" height="12" x="3" y="10" rx="2"/><path d="M7 10V4a2 2 0 0 1 2-2h6a2 2 0 0 1 2 2v6"/><circle cx="7" cy="20" r="2"/><circle cx="17" cy="20" r="2"/></svg>'}
+        </div>
+        ${isResponding ? `<div class="absolute -top-1 -right-1 w-3 h-3 bg-rose-500 rounded-full border-2 border-white animate-bounce"></div>` : ""}
+      </div>
+    `,
+    iconSize: [36, 36],
+    iconAnchor: [18, 18],
+  });
+};
+
+export const GrievanceMap = ({ grievances, patrols = [], onMarkerClick, selectedId }: GrievanceMapProps) => {
   const [activeGrievance, setActiveGrievance] = useState<Grievance | null>(null);
   const [mapType, setMapType] = useState<"standard" | "dark">("dark");
   const [statusFilter, setStatusFilter] = useState<string>("All");
   const [priorityFilter, setPriorityFilter] = useState<string>("All");
 
   const center: [number, number] = [12.9249, 80.1277]; // Chennai Tambaram area
+
+  // Sync external selection with internal map focus
+  useEffect(() => {
+    if (selectedId) {
+      const selected = grievances.find(g => g.id === selectedId);
+      if (selected) {
+        setActiveGrievance(selected);
+      }
+    }
+  }, [selectedId, grievances]);
 
   const filteredGrievances = useMemo(() => {
     return grievances.filter(g => {
@@ -285,18 +349,104 @@ export const GrievanceMap = ({ grievances, onMarkerClick }: GrievanceMapProps) =
           <Marker 
             key={g.id} 
             position={[g.geoData.lat, g.geoData.lng]}
-            icon={createCustomIcon(g.priority, g.category)}
+            icon={createCustomIcon(g.priority, g.category, g.status)}
             eventHandlers={{
-              click: () => setActiveGrievance(g),
+              click: () => {
+                setActiveGrievance(g);
+                onMarkerClick?.(g);
+              },
             }}
           >
             <Popup className="custom-popup">
-              <div className="p-1">
-                <p className="text-[10px] font-black text-indigo-600 uppercase mb-1">{g.category}</p>
-                <p className="text-xs font-bold text-slate-900">{g.summary || g.text}</p>
+              <div className="p-1 space-y-2 min-w-[150px]">
+                <div className="flex justify-between items-center">
+                  <p className="text-[10px] font-black text-indigo-600 uppercase tracking-tighter">{g.category}</p>
+                  <div className={cn(
+                    "px-2 py-0.5 rounded text-[8px] font-black uppercase",
+                    g.priority === "High" ? "bg-rose-100 text-rose-600" : 
+                    g.priority === "Medium" ? "bg-amber-100 text-amber-600" : 
+                    "bg-emerald-100 text-emerald-600"
+                  )}>
+                    {g.priority}
+                  </div>
+                </div>
+                <p className="text-xs font-bold text-slate-900 leading-tight">{g.summary || g.text}</p>
+                {g.officerInCharge && (
+                  <div className="pt-1.5 border-t border-slate-100 flex items-center gap-2">
+                    <div className="w-5 h-5 bg-indigo-50 rounded-lg flex items-center justify-center text-indigo-600 font-black text-[8px]">
+                      P
+                    </div>
+                    <div>
+                      <p className="text-[7px] font-black text-slate-400 uppercase leading-none">Officer</p>
+                      <p className="text-[9px] font-black text-slate-700 leading-none">{g.officerInCharge.name}</p>
+                    </div>
+                  </div>
+                )}
               </div>
             </Popup>
           </Marker>
+        ))}
+
+        {patrols.map((p) => (
+          <React.Fragment key={p.id}>
+            {p.history && p.history.length > 1 && (
+              <Polyline 
+                positions={p.history.map(h => [h.lat, h.lng] as [number, number])}
+                color={p.status === "Responding" ? "#f43f5e" : "#6366f1"}
+                weight={2}
+                dashArray="5, 10"
+                opacity={0.5}
+              />
+            )}
+            <Marker
+              position={[p.location.lat, p.location.lng]}
+              icon={createPatrolIcon(p.type, p.status, p.heading)}
+            >
+              <Popup className="patrol-popup">
+                <div className="p-2 space-y-2 min-w-[150px]">
+                  <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-1.5">
+                      <div className={cn(
+                        "w-2 h-2 rounded-full",
+                        p.status === "Responding" ? "bg-rose-500 animate-pulse" :
+                        p.status === "Patrolling" ? "bg-emerald-500" : "bg-slate-400"
+                      )} />
+                      <p className="text-[10px] font-black uppercase tracking-tighter text-slate-900">{p.id}</p>
+                    </div>
+                    <span className="text-[8px] font-black px-1.5 py-0.5 rounded bg-slate-100 text-slate-600 uppercase italic">
+                      {p.type}
+                    </span>
+                  </div>
+                  
+                  <div className="space-y-1">
+                    <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Current Status</p>
+                    <p className={cn(
+                      "text-xs font-black uppercase tracking-tight",
+                      p.status === "Responding" ? "text-rose-600" :
+                      p.status === "Patrolling" ? "text-emerald-600" : "text-slate-600"
+                    )}>
+                      {p.status}
+                    </p>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                    <div>
+                      <p className="text-[7px] font-black text-slate-400 uppercase">Speed</p>
+                      <p className="text-[10px] font-black text-slate-700">{p.speed} km/h</p>
+                    </div>
+                    <div>
+                      <p className="text-[7px] font-black text-slate-400 uppercase">Heading</p>
+                      <p className="text-[10px] font-black text-slate-700">{Math.round(p.heading)}°</p>
+                    </div>
+                  </div>
+
+                  <p className="text-[7px] text-slate-300 font-bold uppercase text-right pt-1">
+                    Updated: {new Date(p.lastUpdate).toLocaleTimeString()}
+                  </p>
+                </div>
+              </Popup>
+            </Marker>
+          </React.Fragment>
         ))}
 
         {activeGrievance && <MapController center={[activeGrievance.geoData.lat, activeGrievance.geoData.lng]} />}

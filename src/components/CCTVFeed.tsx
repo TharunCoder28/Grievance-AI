@@ -33,33 +33,23 @@ interface CCTVCamera {
 }
 
 const VIDEO_POOL = {
-  traffic: "https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/BigBuckBunny.mp4", // Reliable fallback for testing
-  market: "https://assets.mixkit.co/videos/preview/mixkit-people-walking-in-a-busy-market-street-4418-large.mp4",
-  street_night: "https://assets.mixkit.co/videos/preview/mixkit-night-city-traffic-with-many-cars-and-lights-4416-large.mp4",
-  beach: "https://assets.mixkit.co/videos/preview/mixkit-waves-on-the-beach-at-sunset-4431-large.mp4",
-  theft: "https://assets.mixkit.co/videos/preview/mixkit-security-camera-view-of-a-parking-lot-at-night-4415-large.mp4",
-  rain: "https://assets.mixkit.co/videos/preview/mixkit-rain-falling-on-a-city-street-at-night-4417-large.mp4",
-  crowd_busy: "https://assets.mixkit.co/videos/preview/mixkit-busy-pedestrian-crossing-in-the-city-4422-large.mp4",
-  subway: "https://assets.mixkit.co/videos/preview/mixkit-crowded-subway-station-with-people-walking-4423-large.mp4",
-  square: "https://assets.mixkit.co/videos/preview/mixkit-busy-city-square-with-many-people-walking-4424-large.mp4",
-  pedestrians: "https://assets.mixkit.co/videos/preview/mixkit-pedestrians-walking-on-a-busy-city-street-4421-large.mp4",
-  mall: "https://assets.mixkit.co/videos/preview/mixkit-people-walking-in-a-shopping-mall-4426-large.mp4",
-  sidewalk: "https://assets.mixkit.co/videos/preview/mixkit-people-walking-on-a-busy-sidewalk-4425-large.mp4",
-  crowd_top: "https://assets.mixkit.co/videos/preview/mixkit-busy-city-street-with-people-walking-from-above-4428-large.mp4",
-  crowd_night: "https://assets.mixkit.co/videos/preview/mixkit-people-walking-in-a-busy-city-street-at-night-4429-large.mp4"
+  // HIGH PRIORITY: Critical Incidents, Heavy Crowds
+  traffic_accident: "https://i.giphy.com/media/l0HlzmUf0eQYpA7Hq/giphy.webp", 
+  emergency_lights: "https://i.giphy.com/media/l0HlS13o9d3zTjOda/giphy.webp",
+  intense_crowd: "https://i.giphy.com/media/3o7TKVun7is6YJD4RE/giphy.webp",
+  subway_rush: "https://i.giphy.com/media/26u49SSTP5W8J-E00/giphy.webp",
+  
+  // MEDIUM PRIORITY: Routine busy areas, suspicious observation
+  market_activity: "https://i.giphy.com/media/3o7TIv7k1S3LpU5N7q/giphy.webp",
+  busy_street: "https://i.giphy.com/media/26gs8wYlW7FisPZ9m/giphy.webp",
+  security_mon: "https://i.giphy.com/media/26vUNS0pA6y4Lmx-E/giphy.webp",
+  rainy_night: "https://i.giphy.com/media/3o7TKT7l2B0rXN1-E/giphy.webp",
+  
+  // LOW PRIORITY: Passive monitoring
+  empty_street: "https://i.giphy.com/media/3o7TKMG7r7X0r5W7m0/giphy.webp",
+  calm_plaza: "https://i.giphy.com/media/l0MYy8p8S9hP8n6u4/giphy.webp",
+  park_view: "https://i.giphy.com/media/l0HlxuVvA80y0l-2A/giphy.webp"
 };
-
-const CROWD_VIDEOS = [
-  VIDEO_POOL.market,
-  VIDEO_POOL.crowd_busy,
-  VIDEO_POOL.subway,
-  VIDEO_POOL.square,
-  VIDEO_POOL.pedestrians,
-  VIDEO_POOL.mall,
-  VIDEO_POOL.sidewalk,
-  VIDEO_POOL.crowd_top,
-  VIDEO_POOL.crowd_night
-];
 
 const CAMERAS: CCTVCamera[] = [
   { 
@@ -69,125 +59,89 @@ const CAMERAS: CCTVCamera[] = [
     issue: "Traffic Accident", 
     priority: "High", 
     status: "Pending",
-    videoPool: [VIDEO_POOL.traffic]
+    videoPool: [VIDEO_POOL.traffic_accident, VIDEO_POOL.emergency_lights]
   },
   { 
     id: "CAM-02", 
     name: "Tambaram Market", 
     location: "Tambaram", 
-    issue: "Crowd Control", 
+    issue: "Massive Crowd Surge", 
     priority: "High", 
     status: "Pending",
-    videoPool: CROWD_VIDEOS
+    videoPool: [VIDEO_POOL.intense_crowd, VIDEO_POOL.market_activity]
   },
   { 
     id: "CAM-03", 
     name: "Anna Nagar West", 
     location: "Anna Nagar", 
-    issue: "Illegal Dumping", 
+    issue: "Static Perimeter Check", 
     priority: "Low", 
     status: "Pending",
-    videoPool: [VIDEO_POOL.street_night]
+    videoPool: [VIDEO_POOL.calm_plaza]
   },
   { 
     id: "CAM-04", 
     name: "Marina Beach Road", 
     location: "Marina", 
-    issue: "Suspicious Activity", 
-    priority: "High", 
+    issue: "Citizen Movement", 
+    priority: "Medium", 
     status: "Pending",
-    videoPool: [VIDEO_POOL.beach]
+    videoPool: [VIDEO_POOL.busy_street, VIDEO_POOL.park_view]
   },
   { 
     id: "CAM-05", 
     name: "T-Nagar Plaza", 
     location: "T-Nagar", 
-    issue: "Theft Reported", 
+    issue: "Security Observation", 
     priority: "High", 
     status: "Pending",
-    videoPool: [VIDEO_POOL.theft]
+    videoPool: [VIDEO_POOL.security_mon, VIDEO_POOL.intense_crowd]
   },
   { 
     id: "CAM-06", 
     name: "Velachery Main Road", 
     location: "Velachery", 
-    issue: "Water Logging", 
+    issue: "Weather Monitoring", 
     priority: "Medium", 
     status: "Pending",
-    videoPool: [VIDEO_POOL.rain]
+    videoPool: [VIDEO_POOL.rainy_night]
   },
   { 
     id: "CAM-07", 
     name: "Central Station Exit", 
     location: "Central", 
-    issue: "Heavy Inflow", 
+    issue: "Rush Hour Surge", 
     priority: "High", 
     status: "Pending",
-    videoPool: [VIDEO_POOL.subway, ...CROWD_VIDEOS]
+    videoPool: [VIDEO_POOL.subway_rush, VIDEO_POOL.intense_crowd]
   },
   { 
     id: "CAM-08", 
     name: "Mount Road Crossing", 
     location: "Mount Road", 
-    issue: "Pedestrian Safety", 
+    issue: "Intersection Flow", 
     priority: "Medium", 
     status: "Pending",
-    videoPool: [VIDEO_POOL.crowd_busy, ...CROWD_VIDEOS]
+    videoPool: [VIDEO_POOL.busy_street, VIDEO_POOL.market_activity]
   },
   { 
     id: "CAM-09", 
     name: "City Center Square", 
     location: "Egmore", 
-    issue: "Public Gathering", 
+    issue: "Security Protocol", 
     priority: "High", 
     status: "Pending",
-    videoPool: CROWD_VIDEOS
+    videoPool: [VIDEO_POOL.emergency_lights, VIDEO_POOL.security_mon]
   },
   { 
     id: "CAM-10", 
     name: "Express Avenue Mall", 
     location: "Royapettah", 
-    issue: "Crowd Surge", 
-    priority: "High", 
-    status: "Pending",
-    videoPool: [VIDEO_POOL.mall, ...CROWD_VIDEOS]
-  },
-  { 
-    id: "CAM-11", 
-    name: "Pondy Bazaar Sidewalk", 
-    location: "T-Nagar", 
-    issue: "Illegal Hawking", 
-    priority: "Medium", 
-    status: "Pending",
-    videoPool: CROWD_VIDEOS
-  },
-  { 
-    id: "CAM-12", 
-    name: "OMR IT Corridor", 
-    location: "Sholinganallur", 
-    issue: "Peak Hour Rush", 
-    priority: "High", 
-    status: "Pending",
-    videoPool: CROWD_VIDEOS
-  },
-  { 
-    id: "CAM-13", 
-    name: "T-Nagar Skywalk", 
-    location: "T-Nagar", 
-    issue: "Crowd Congestion", 
-    priority: "High", 
-    status: "Pending",
-    videoPool: CROWD_VIDEOS
-  },
-  { 
-    id: "CAM-14", 
-    name: "Broadway Night Market", 
-    location: "Parrys", 
-    issue: "Unlicensed Vendors", 
-    priority: "Medium", 
-    status: "Pending",
-    videoPool: CROWD_VIDEOS
-  },
+    issue: "Routine Monitoring", 
+    priority: "Low", 
+    status: "Resolved",
+    videoPool: [VIDEO_POOL.empty_street]
+  }
 ];
 
 const FeedPanel = ({ 
@@ -310,14 +264,9 @@ const FeedPanel = ({
         (loading || hasError) ? "scale-110 blur-xl opacity-0" : "scale-100 blur-0 opacity-100"
       )}>
         {!hasError ? (
-          <video
-            ref={videoRef}
+          <img
             src={camera.videoPool[videoIndex]}
-            autoPlay
-            muted
-            loop
-            playsInline
-            onCanPlay={() => setLoading(false)}
+            onLoad={() => setLoading(false)}
             onError={() => {
               setHasError(true);
               setLoading(false);
@@ -658,12 +607,8 @@ export const CCTVFeedSimulation = () => {
                   "aspect-video relative bg-black group/modal transition-all duration-500",
                   isFullscreen ? "w-full h-full" : "w-full lg:w-3/4"
                 )}>
-                  <video
+                  <img
                     src={selectedCam.videoPool[0]}
-                    autoPlay
-                    muted
-                    loop
-                    playsInline
                     className="w-full h-full object-cover opacity-80 grayscale-[0.1] contrast-125 animate-cctv-zoom"
                   />
                   {/* Dark Overlay */}
@@ -811,12 +756,9 @@ export const CCTVFeedSimulation = () => {
               exit={{ opacity: 0, scale: 0.9, y: 20 }}
               className="relative w-full max-w-5xl aspect-video bg-black rounded-[3rem] overflow-hidden border border-white/20 shadow-[0_0_150px_rgba(99,102,241,0.3)] group/focus"
             >
-              <video
+              <img
                 src={selectedCam.videoPool[0]}
-                autoPlay
-                muted={isMuted}
-                loop
-                playsInline
+                onLoad={() => setIsSwitchingRes(false)}
                 className={cn(
                   "w-full h-full object-cover grayscale-[0.05] contrast-110 brightness-110 transition-all duration-700",
                   !isHighRes && "blur-[2px] opacity-90",
